@@ -45,8 +45,8 @@ class MyFirstModel(DynamicModel):
     self.predator = predatorBirth
     
     # Save prey and predator distribution of current timestep each as a map
-    self.report(predator,'predator')
-    self.report(prey,"prey")
+    self.report(self.predator,'predator')
+    self.report(self.prey,"prey")
     
 # Run the model 100 times
 nrOfTimeSteps=100
