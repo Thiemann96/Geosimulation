@@ -1,6 +1,30 @@
 from pcraster import *
 from pcraster.framework import *
 import csv
+import sys
+
+numberOfTimesExecuted = sys.argv[1]
+initialPreyDensity=0.1
+initialPredDensity = 0.1
+
+def printStatus():
+    print()
+    print("Running the model " + numberOfTimesExecuted +" times")
+    print("Prey distribution of:"+str(initialPreyDensity))
+    print("Predator distribution of:"+str(initialPredDensity))
+    print()
+
+def printToCSV(avg_prey,avg_pred,avg_inf,initinfitdens):
+    print('Writing to csv now')
+    # write to csv 
+    with open('csv/preyInf.csv','a',newline="\n") as file:
+        writer  = csv.writer(file, delimiter=';',
+                    quotechar='|', quoting=csv.QUOTE_MINIMAL)
+        writer.writerow([round(initialPreyDensity,1),round(initialPredDensity,1),initinfitdens,avg_prey,avg_pred,avg_inf])
+    print('Done!')
+    print('##################################')
+    
+
 class MyFirstModel(DynamicModel):
   def __init__(self):
     DynamicModel.__init__(self)
@@ -11,18 +35,18 @@ class MyFirstModel(DynamicModel):
     # Prey:
     self.preymap = uniform(1)
     # Set probability for prey to 10 % 
-    self.prey = self.preymap<0.3 # to be made random .. 
+    self.prey = self.preymap<initialPreyDensity # to be made random .. 
     # Save as map
     self.report(self.prey,"preyMap")
     
     # Predator:
     self.predator = uniform(1)
     # Set probability for predator to 10 % 
-    self.predator = self.predator<0.1
+    self.predator = self.predator<initialPredDensity
     # Save as map
     self.report(self.predator,"predatorMap")
 
-    self.infPrey = pcrand(self.preymap>0.3, self.preymap<0.4)  # to be made random .. 
+    self.infPrey = pcrand(self.preymap>initialPreyDensity, self.preymap<initialPreyDensity+0.1)  # to be made random .. 
     # Save as map
     self.report(self.infPrey,"preyMap")
     
@@ -34,11 +58,15 @@ class MyFirstModel(DynamicModel):
     self.predDensity = [0]*30
     self.preyInitDensity = areaaverage(scalar(self.prey),nominal(self.emptymap))
     self.predInitDensity = areaaverage(scalar(self.predator),nominal(self.emptymap))
-    self.preyFinalDensityCSV = list()
-    self.predFinalDensityCSV = list()
-    self.already = False
+    self.infPreyInitDensity = areaaverage(scalar(self.infPrey),nominal(self.emptymap))
+    self.infPreyInitDensity = pcraster.cellvalue(self.infPreyInitDensity,1)[0]
+    self.preyFinalDensity = 0
+    self.predFinalDensity = 0
+    self.infPreyFinalDensity = 0 
+    self.alreadyPrey = False 
+    self.alreadyPred = False
 
-    print("Finished building maps for prey&predator distribution")
+    print("neue Dichte Werte:"+str(initialPreyDensity)+"/"+str(initialPredDensity))
     
   def dynamic(self):
     # Determine cells which were occupied by both, prey and predator in last timestep
@@ -126,11 +154,15 @@ class MyFirstModel(DynamicModel):
         
         # Save density of prey in the state of equilibrium
         preyFinalDensity = ifthen(equlibriumPrey, areaaverage(scalar(self.prey),nominal(self.emptymap)))
-        preyFinalDensityCSV = pcraster.cellvalue(preyFinalDensity,1)[0]
-        preyInitDensity = pcraster.cellvalue(self.preyInitDensity,1)[0]
-        self.preyFinalDensityCSV.append(preyFinalDensityCSV)
+        infPreyFinalDensity = ifthen(equlibriumPrey, areaaverage(scalar(self.infPrey),nominal(self.emptymap)))
         self.report(preyFinalDensity,"preyDens")
-
+        if(pcraster.cellvalue(equlibriumPrey,1)[0]):
+                if(not(self.alreadyPrey)):
+                    print("des")
+                    print(self.iter)
+                    self.preyFinalDensity = pcraster.cellvalue(preyFinalDensity,1)[0]
+                    self.infPreyFinalDensity = pcraster.cellvalue(infPreyFinalDensity,1)[0]
+                    self.alreadyPrey = True
 
     # <---------------------------------- Predator ----------------------------------->
 
@@ -173,31 +205,54 @@ class MyFirstModel(DynamicModel):
         equlibriumPred = (predMean10 > (predMean30 - predSD30)) & (predMean10 < (predMean30 + predSD30))
         # Save density of pred in the state of equilibrium
         predFinalDensity = ifthen(equlibriumPred, areaaverage(scalar(self.predator),nominal(self.emptymap)))
-        predFinalDensityCSV = pcraster.cellvalue(predFinalDensity,1)[0]
-        predInitDensity = pcraster.cellvalue(self.predInitDensity,1)[0]
-        self.predFinalDensityCSV.append(predFinalDensityCSV)
 
         self.report(predFinalDensity,"predDens")
         # Confirm if equilibrium is validated (map has value true)
         if(pcraster.cellvalue(equlibriumPred,1)[0]):
             # When an equilibrium has already been found in this execution do nothing
-            if(not(self.already)):
+            if(not(self.alreadyPred)):
                 # When an equilibrium has not been found log the neccessary values to csv
-                print("Equilibrium found.. writing to csv...")
-                array = [preyInitDensity,predInitDensity,self.preyFinalDensityCSV[0],self.predFinalDensityCSV[0]]
-                with open('states.csv','a',newline="\n") as file:
-                    writer  = csv.writer(file, delimiter=';',
-                                quotechar='|', quoting=csv.QUOTE_MINIMAL)
-                    writer.writerow([array[0],array[1],array[2],array[3]])
-                    # Set already to true to not calculate any further
-                    self.already = True
+                    self.predFinalDensity = pcraster.cellvalue(predFinalDensity,1)[0]
+                    self.alreadyPred = True
             
     self.iter=self.iter+1
 # Run the model 100 times
-nrOfTimeSteps=100
+nrOfTimeSteps=50
 myModel = MyFirstModel()
 dynamicModel = DynamicFramework(myModel,nrOfTimeSteps)
-dynamicModel.run()
 
+avg_prey = 0 
+avg_pred = 0 
+avg_inf = 0 
+i = 0 
+printStatus()
 
+while(initialPreyDensity<=1):
+    while(initialPredDensity<=1):
+        while(i<int(numberOfTimesExecuted)):
+            dynamicModel.run()
+            avg_prey += myModel.preyFinalDensity
+            avg_pred += myModel.predFinalDensity
+            avg_inf += myModel.infPreyFinalDensity
+            print(i+1)
+            print("Averages:")
+            print(str(avg_prey/int(numberOfTimesExecuted))+'/'+str(avg_pred/int(numberOfTimesExecuted))+"/"+str(avg_inf/int(numberOfTimesExecuted)))
+            i+=1
+        avg_prey = avg_prey/int(numberOfTimesExecuted)
+        avg_pred = avg_pred/int(numberOfTimesExecuted)
+        avg_inf = avg_inf/int(numberOfTimesExecuted)
+        print("Average of prey:"+str(avg_prey))
+        print("Average of pred:"+str(avg_pred))
+        print("Average of infected prey:"+str(avg_inf))
+        print("Initial infected prey:"+str(myModel.infPreyInitDensity))
 
+        printToCSV(avg_prey,avg_pred,avg_inf,myModel.infPreyInitDensity)
+        initialPredDensity+=0.1 
+        i = 0
+        avg_prey = 0
+        avg_pred = 0
+        avg_inf = 0 
+    initialPreyDensity+=0.1
+    initialPredDensity = 0.0
+    print("New distribution values:"+str(initialPreyDensity)+"/"+str(initialPredDensity))
+    print()
